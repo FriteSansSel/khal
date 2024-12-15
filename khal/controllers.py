@@ -397,7 +397,7 @@ def new_interactive(collection, calendar_name, conf, info, location=None,
     echo("event saved")
 
     term_width, _ = get_terminal_size()
-    edit_event(event, collection, conf['locale'], width=term_width)
+    edit_event(event, collection, conf['locale'], width=term_width, conf=conf)
 
 
 def new_from_string(collection, calendar_name, conf, info, location=None,
@@ -493,7 +493,7 @@ def present_options(options, prefix="", sep="  ", width=70):
         return None
 
 
-def edit_event(event, collection, locale, allow_quit=False, width=80):
+def edit_event(event, collection, locale, allow_quit=False, width=80, conf=None):
     options = OrderedDict()
     if allow_quit:
         options["no"] = {"short": "n"}
@@ -517,6 +517,8 @@ def edit_event(event, collection, locale, allow_quit=False, width=80):
 
     now = dt.datetime.now()
 
+    add_overlapping_event_flag(event, collection, conf)
+
     while True:
         choice = present_options(options, prefix="Edit?", width=width)
         if choice is None:
@@ -532,6 +534,7 @@ def edit_event(event, collection, locale, allow_quit=False, width=80):
         if choice == "Delete":
             if confirm("Delete all occurences of event?"):
                 collection.delete(event.href, event.etag, event.calendar)
+                remove_overlapping_event_flag(event, collection, conf)
                 return True
         elif choice == "datetime range":
             current = human_formatter("{start} {end}")(event.attributes(relative_to=now))
@@ -602,6 +605,83 @@ def edit_event(event, collection, locale, allow_quit=False, width=80):
             event.increment_sequence()
             collection.update(event)
 
+def add_overlapping_event_flag(event, collection, conf):
+    """Checks for overlapping events and updates their summaries."""
+    start = event.start
+    other_events_on_that_day = collection.get_events_on(start)  # Call with the correct number of arguments
+
+    for other_event in other_events_on_that_day:
+        if other_event.href != event.href:  # Skip the current event itself
+            start1, end1 = event.start, event.end
+            start2, end2 = other_event.start, other_event.end
+
+            # Check if events overlap
+            if max(start1, start2) < min(end1, end2):
+                # Mark "overlapping event" in the summaries
+                if "overlapping event" not in other_event.summary:
+                    other_event_new = other_event.summary + " (overlapping event)"
+                    new_event_args = { 'summary': other_event_new, 
+                                      'dtstart': other_event.start,
+                                      'dtend': other_event.end,
+                                      'location': other_event.location, 
+                                      'categories': other_event.categories, 
+                                      #'repeat': other_event.repeat, 
+                                      #'until': other_event.until, 
+                                      #'alarms': other_event.alarms, 
+                                      'description': other_event.description
+                                      #'timezone': other_event.timezone 
+                                      }
+                    collection.delete(other_event.href, other_event.etag, other_event.calendar)
+                    new_from_dict(new_event_args, collection, conf, calendar_name=other_event.calendar)
+
+                if "overlapping event" not in event.summary:
+                    event_new = event.summary + " (overlapping event)"
+                    new_event_args = { 'summary': event_new, 
+                                      'dtstart': event.start,
+                                      'dtend': event.end,
+                                      'location': event.location, 
+                                      'categories': event.categories, 
+                                      #'repeat': event.repeat, 
+                                      #'until': event.until, 
+                                      #'alarms': event.alarms, 
+                                      'description': event.description 
+                                      #'timezone': event.timezone 
+                                      }
+                    collection.delete(event.href, event.etag, event.calendar)
+                    new_from_dict(new_event_args, collection, conf, calendar_name=event.calendar)
+
+    echo("Overlapping event check and update completed.")
+
+def remove_overlapping_event_flag(event, collection, conf):
+    """Checks for non-overlapping events and updates their summaries."""
+    start = event.start
+    other_events_on_that_day = collection.get_events_on(start)  # Call with the correct number of arguments
+
+    for other_event in other_events_on_that_day:
+        if other_event.href != event.href:  # Skip the current event itself
+            start1, end1 = event.start, event.end
+            start2, end2 = other_event.start, other_event.end
+
+            # Check if events do not overlap
+            if max(start1, start2) >= min(end1, end2):
+                # Remove "overlapping event" from summaries if present
+                if "overlapping event" in other_event.summary:
+                    other_event_new = other_event.summary.replace("(overlapping event)", "")
+                    new_event_args = {'summary': other_event_new, 
+                                      'dtstart': other_event.start,
+                                      'dtend': other_event.end,
+                                      'location': other_event.location, 
+                                      'categories': other_event.categories, 
+                                      #'repeat': other_event.repeat, 
+                                      #'until': other_event.until, 
+                                      #'alarms': other_event.alarms, 
+                                      'description': other_event.description
+                                      #'timezone': other_event.timezone 
+                                      }
+                    collection.delete(other_event.href, other_event.etag, other_event.calendar)
+                    new_from_dict(new_event_args, collection, conf, calendar_name=other_event.calendar)
+
+    echo("Non-overlapping event check and update completed.")
 
 def edit(collection, search_string, locale, format=None, allow_past=False, conf=None):
     if conf is not None:

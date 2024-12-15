@@ -273,7 +273,7 @@ def new(ctx, calendar, info, location, categories, repeat, until, alarms, url, f
             alarms=alarms,
             url=url,
             format=format,
-            json=json
+            json=json,
         )
     except FatalError as error:
         logger.debug(error, exc_info=True)
